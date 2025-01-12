@@ -1,41 +1,83 @@
-// roomService.ts
+import mongoose from 'mongoose';
 
-export const createRoom = (roomId: string, rooms: { [roomId: string]: any[] }) => {
-    if (!rooms[roomId]) {
-      rooms[roomId] = []; // Create a new room
-      return true; // Room created successfully
+// Define the Room schema
+const RoomSchema = new mongoose.Schema(
+  {
+    roomId: { type: String, required: true, unique: true },
+    users: { type: [String], default: [] }, // Array of user IDs (e.g., WebSocket IDs)
+  },
+  { timestamps: true }
+);
+
+// Create the Room model
+const RoomModel = mongoose.model('Room', RoomSchema);
+
+// Create a new room
+export const createRoom = async (roomId: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    const existingRoom = await RoomModel.findOne({ roomId });
+    if (existingRoom) {
+      return { success: false, message: 'Room already exists' };
     }
-    return false; // Room already exists
-  };
-  
-  // Add user to a room
-  export const joinRoom = (roomId: string, ws: WebSocket, rooms: { [roomId: string]: any[] }) => {
-    if (!rooms[roomId]) {
+
+    const newRoom = new RoomModel({ roomId });
+    await newRoom.save();
+    return { success: true, message: 'Room created successfully' };
+  } catch (error: any) {
+    console.error('Error creating room:', error);
+    return { success: false, message: 'Failed to create room' };
+  }
+};
+
+// Add user to a room
+export const joinRoom = async (roomId: string, userId: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    const room = await RoomModel.findOne({ roomId });
+    if (!room) {
       return { success: false, message: 'Room does not exist' };
     }
-  
-    // Add WebSocket to room
-    rooms[roomId].push(ws);
-    return { success: true, message: `Joined room ${roomId}` };
-  };
-  
-  // Remove user from room (when they disconnect or leave the room)
-  export const leaveRoom = (roomId: string, ws: WebSocket, rooms: { [roomId: string]: any[] }) => {
-    if (!rooms[roomId]) {
+
+    if (!room.users.includes(userId)) {
+      room.users.push(userId);
+      await room.save();
+    }
+
+    return { success: true, message: `User ${userId} joined room ${roomId}` };
+  } catch (error: any) {
+    console.error('Error joining room:', error);
+    return { success: false, message: 'Failed to join room' };
+  }
+};
+
+// Remove user from a room
+export const leaveRoom = async (roomId: string, userId: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    const room = await RoomModel.findOne({ roomId });
+    if (!room) {
       return { success: false, message: 'Room does not exist' };
     }
-  
-    const index = rooms[roomId].indexOf(ws);
-    if (index !== -1) {
-      rooms[roomId].splice(index, 1); // Remove WebSocket from room
-      return { success: true, message: `Left room ${roomId}` };
+
+    const userIndex = room.users.indexOf(userId);
+    if (userIndex !== -1) {
+      room.users.splice(userIndex, 1);
+      await room.save();
+      return { success: true, message: `User ${userId} left room ${roomId}` };
     }
-  
+
     return { success: false, message: 'User not in room' };
-  };
-  
-  // Fetch all available rooms
-  export async function getAllRooms(rooms: { [roomId: string]: any[] }): Promise<{ [roomId: string]: any[] }> {
-    return rooms;
-  };
-  
+  } catch (error: any) {
+    console.error('Error leaving room:', error);
+    return { success: false, message: 'Failed to leave room' };
+  }
+};
+
+// Fetch all available rooms
+export const getAllRooms = async (): Promise<{ success: boolean; rooms?: any[]; message?: string }> => {
+  try {
+    const rooms = await RoomModel.find({}, { roomId: 1, users: 1, _id: 0 }); // Fetch roomId and users only
+    return { success: true, rooms };
+  } catch (error: any) {
+    console.error('Error fetching rooms:', error);
+    return { success: false, message: 'Failed to fetch rooms' };
+  }
+};

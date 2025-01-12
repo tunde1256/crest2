@@ -1,12 +1,12 @@
-import { saveMessage, getMessagesByRoom, saveDirectMessage, getDirectMessages } from '../database/chatservice';
+import { MessageModel, DirectMessageModel } from '../model/chatmodel'; // Assume MongoDB models are defined here
 
+// Send a message to a chat room or as a direct message
 export const sendMessage = async (
-  roomId: string | null, 
-  message: string, 
-  senderId: string, 
-  recipientId?: string // receiver ID is optional for room messages, required for direct messages
+  roomId: string | null,
+  message: string,
+  senderId: string,
+  recipientId?: string
 ): Promise<any> => {
-  // Validate the input
   if (!message || message.trim().length === 0) {
     throw new Error('Message content is required');
   }
@@ -17,15 +17,14 @@ export const sendMessage = async (
 
   if (roomId) {
     // Room-based message
-    const newMessage = {
-      chat_room_id: Number(roomId),
-      user_id: Number(senderId),
-      message: message,  // Ensure that 'message' is used consistently in the database
-      // sent_at will be handled automatically by MySQL, no need for timestamp here
-    };
+    const newMessage = new MessageModel({
+      chatRoomId: roomId,
+      senderId: senderId,
+      message: message,
+    });
 
     try {
-      await saveMessage(newMessage);  // Save the room message in the database
+      await newMessage.save(); // Save the room message to MongoDB
       return newMessage;
     } catch (error: any) {
       console.error('Error saving message to chat room:', error);
@@ -34,17 +33,16 @@ export const sendMessage = async (
   }
 
   if (recipientId) {
-    // Direct message (DM) to a specific recipient
-    const newMessage = {
-      sender_id: Number(senderId),
-      recipient_id: Number(recipientId),  // recipientId is used here
-      message: message,  // Ensure that 'message' is used for the message text
-      // sent_at will be handled automatically by MySQL, no need for timestamp here
-    };
+    // Direct message (DM)
+    const newDirectMessage = new DirectMessageModel({
+      senderId: senderId,
+      recipientId: recipientId,
+      message: message,
+    });
 
     try {
-      await saveDirectMessage(newMessage);  // Save the direct message in the database
-      return newMessage;
+      await newDirectMessage.save(); // Save the direct message to MongoDB
+      return newDirectMessage;
     } catch (error: any) {
       console.error('Error saving direct message:', error);
       throw new Error(`Failed to save direct message: ${error.message}`);
@@ -57,7 +55,7 @@ export const sendMessage = async (
 // Fetch messages for a specific room
 export const fetchMessages = async (roomId: string) => {
   try {
-    return await getMessagesByRoom(Number(roomId));
+    return await MessageModel.find({ chatRoomId: roomId }).sort({ createdAt: 1 });
   } catch (error: any) {
     throw new Error(`Failed to fetch messages for room ${roomId}: ${error.message}`);
   }
@@ -66,7 +64,12 @@ export const fetchMessages = async (roomId: string) => {
 // Fetch direct messages between two users
 export const fetchDirectMessages = async (senderId: string, recipientId: string) => {
   try {
-    return await getDirectMessages(Number(senderId), Number(recipientId));
+    return await DirectMessageModel.find({
+      $or: [
+        { senderId: senderId, recipientId: recipientId },
+        { senderId: recipientId, recipientId: senderId },
+      ],
+    }).sort({ createdAt: 1 });
   } catch (error: any) {
     throw new Error(`Failed to fetch direct messages: ${error.message}`);
   }

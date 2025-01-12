@@ -1,10 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.fetchDirectMessages = exports.fetchMessages = exports.sendMessage = void 0;
-const chatservice_1 = require("../database/chatservice");
-const sendMessage = async (roomId, message, senderId, recipientId // receiver ID is optional for room messages, required for direct messages
-) => {
-    // Validate the input
+const chatmodel_1 = require("../model/chatmodel"); // Assume MongoDB models are defined here
+// Send a message to a chat room or as a direct message
+const sendMessage = async (roomId, message, senderId, recipientId) => {
     if (!message || message.trim().length === 0) {
         throw new Error('Message content is required');
     }
@@ -13,14 +12,13 @@ const sendMessage = async (roomId, message, senderId, recipientId // receiver ID
     }
     if (roomId) {
         // Room-based message
-        const newMessage = {
-            chat_room_id: Number(roomId),
-            user_id: Number(senderId),
-            message: message, // Ensure that 'message' is used consistently in the database
-            // sent_at will be handled automatically by MySQL, no need for timestamp here
-        };
+        const newMessage = new chatmodel_1.MessageModel({
+            chatRoomId: roomId,
+            senderId: senderId,
+            message: message,
+        });
         try {
-            await (0, chatservice_1.saveMessage)(newMessage); // Save the room message in the database
+            await newMessage.save(); // Save the room message to MongoDB
             return newMessage;
         }
         catch (error) {
@@ -29,16 +27,15 @@ const sendMessage = async (roomId, message, senderId, recipientId // receiver ID
         }
     }
     if (recipientId) {
-        // Direct message (DM) to a specific recipient
-        const newMessage = {
-            sender_id: Number(senderId),
-            recipient_id: Number(recipientId), // recipientId is used here
-            message: message, // Ensure that 'message' is used for the message text
-            // sent_at will be handled automatically by MySQL, no need for timestamp here
-        };
+        // Direct message (DM)
+        const newDirectMessage = new chatmodel_1.DirectMessageModel({
+            senderId: senderId,
+            recipientId: recipientId,
+            message: message,
+        });
         try {
-            await (0, chatservice_1.saveDirectMessage)(newMessage); // Save the direct message in the database
-            return newMessage;
+            await newDirectMessage.save(); // Save the direct message to MongoDB
+            return newDirectMessage;
         }
         catch (error) {
             console.error('Error saving direct message:', error);
@@ -51,7 +48,7 @@ exports.sendMessage = sendMessage;
 // Fetch messages for a specific room
 const fetchMessages = async (roomId) => {
     try {
-        return await (0, chatservice_1.getMessagesByRoom)(Number(roomId));
+        return await chatmodel_1.MessageModel.find({ chatRoomId: roomId }).sort({ createdAt: 1 });
     }
     catch (error) {
         throw new Error(`Failed to fetch messages for room ${roomId}: ${error.message}`);
@@ -61,7 +58,12 @@ exports.fetchMessages = fetchMessages;
 // Fetch direct messages between two users
 const fetchDirectMessages = async (senderId, recipientId) => {
     try {
-        return await (0, chatservice_1.getDirectMessages)(Number(senderId), Number(recipientId));
+        return await chatmodel_1.DirectMessageModel.find({
+            $or: [
+                { senderId: senderId, recipientId: recipientId },
+                { senderId: recipientId, recipientId: senderId },
+            ],
+        }).sort({ createdAt: 1 });
     }
     catch (error) {
         throw new Error(`Failed to fetch direct messages: ${error.message}`);
