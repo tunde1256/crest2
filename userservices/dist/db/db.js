@@ -32,7 +32,7 @@ const db = (0, knex_1.default)(knexConfig);
     }
     catch (error) {
         console.error('Failed to connect to the database:');
-        process.exit(1); // Exit the process with an error
+        process.exit(1);
     }
 }))();
 exports.default = db;

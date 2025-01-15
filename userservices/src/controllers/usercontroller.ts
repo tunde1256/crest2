@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { UserModel } from '../models/userModel';
+import { sendToQueue } from '../rabbitmq'; // Import the RabbitMQ helper
 import upload from '../middleware/multerConfig';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
@@ -31,12 +32,14 @@ export class UserController {
 
   static async createUser(req: Request, res: Response): Promise<any> {
     const { fullname, email, password, gender, phoneNumber } = req.body;
-  
     try {
       const hashedPassword = await bcrypt.hash(password, 10);
-  
       const newUser = await UserModel.create({ fullname, email, password: hashedPassword, gender, phoneNumber });
-  
+
+      // Send message to RabbitMQ after user creation
+      const message = `New user created: ${newUser.fullname} (${newUser.email})`;
+      sendToQueue(message);
+
       return res.status(201).json({
         message: 'User created successfully',
         user: newUser,
@@ -45,7 +48,7 @@ export class UserController {
       return res.status(500).json({ message: 'Failed to create user', error });
     }
   }
-  
+
   static async login(req: Request, res: Response): Promise<any> {
     const { email, password } = req.body;
     try {
@@ -59,7 +62,11 @@ export class UserController {
         return res.status(401).json({ message: 'Invalid email or password' });
       }
 
-      const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+      const token = jwt.sign({ id: user.id, email: user.email, name: user.fullname }, JWT_SECRET, { expiresIn: '1h' });
+
+      // Send message to RabbitMQ after successful login
+      const loginMessage = `User logged in: ${user.fullname} (${user.email})`;
+      sendToQueue(loginMessage);
 
       return res.status(200).json({ message: 'Login successful', token, user });
     } catch (error) {
@@ -101,6 +108,10 @@ export class UserController {
         return res.status(404).json({ message: 'User not found' });
       }
 
+      // Send message to RabbitMQ after user update
+      const updateMessage = `User updated: ${fullname} (${email})`;
+      sendToQueue(updateMessage);
+
       return res.status(200).json({ message: 'User updated successfully' });
     } catch (error) {
       return res.status(500).json({ message: 'Failed to update user', error });
@@ -114,6 +125,11 @@ export class UserController {
       if (deleted === 0) {
         return res.status(404).json({ message: 'User not found' });
       }
+
+      // Send message to RabbitMQ after user deletion
+      const deleteMessage = `User deleted: ${id}`;
+      sendToQueue(deleteMessage);
+
       return res.status(200).json({ message: 'User deleted successfully' });
     } catch (error) {
       return res.status(500).json({ message: 'Failed to delete user', error });

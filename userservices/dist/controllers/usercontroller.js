@@ -16,9 +16,9 @@ exports.UserController = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const userModel_1 = require("../models/userModel");
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Use environment variable for the secret key
+const rabbitmq_1 = require("../rabbitmq"); // Import the RabbitMQ helper
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 class UserController {
-    // Get all users
     static getAllUsers(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
@@ -30,7 +30,6 @@ class UserController {
             }
         });
     }
-    // Get a user by ID
     static getUserById(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             const { id } = req.params;
@@ -46,19 +45,18 @@ class UserController {
             }
         });
     }
-    // Create a new user
     static createUser(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             const { fullname, email, password, gender, phoneNumber } = req.body;
             try {
-                // Encrypt the password
                 const hashedPassword = yield bcrypt_1.default.hash(password, 10);
-                // Create user in the database
                 const newUser = yield userModel_1.UserModel.create({ fullname, email, password: hashedPassword, gender, phoneNumber });
-                // Return the full user object in the response
+                // Send message to RabbitMQ after user creation
+                const message = `New user created: ${newUser.fullname} (${newUser.email})`;
+                (0, rabbitmq_1.sendToQueue)(message);
                 return res.status(201).json({
                     message: 'User created successfully',
-                    user: newUser, // Return the full user object
+                    user: newUser,
                 });
             }
             catch (error) {
@@ -66,7 +64,6 @@ class UserController {
             }
         });
     }
-    // User login
     static login(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             const { email, password } = req.body;
@@ -75,13 +72,14 @@ class UserController {
                 if (!user) {
                     return res.status(401).json({ message: 'Invalid email or password' });
                 }
-                // Compare the hashed password
                 const isPasswordValid = yield bcrypt_1.default.compare(password, user.password);
                 if (!isPasswordValid) {
                     return res.status(401).json({ message: 'Invalid email or password' });
                 }
-                // Generate JWT token
-                const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+                const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email, name: user.fullname }, JWT_SECRET, { expiresIn: '1h' });
+                // Send message to RabbitMQ after successful login
+                const loginMessage = `User logged in: ${user.fullname} (${user.email})`;
+                (0, rabbitmq_1.sendToQueue)(loginMessage);
                 return res.status(200).json({ message: 'Login successful', token, user });
             }
             catch (error) {
@@ -89,7 +87,6 @@ class UserController {
             }
         });
     }
-    // Upload profile picture
     static uploadProfilePicture(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             const { id } = req.params;
@@ -97,7 +94,7 @@ class UserController {
                 if (!req.file || !req.file.path) {
                     return res.status(400).json({ message: 'No file uploaded' });
                 }
-                const profilePictureUrl = req.file.path; // Cloudinary URL from multer
+                const profilePictureUrl = req.file.path;
                 const updated = yield userModel_1.UserModel.update(Number(id), { profilePicture: profilePictureUrl });
                 if (updated === 0) {
                     return res.status(404).json({ message: 'User not found' });
@@ -109,14 +106,12 @@ class UserController {
             }
         });
     }
-    // Update a user by ID
     static updateUser(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             const { id } = req.params;
             const { fullname, email, password, gender, phoneNumber } = req.body;
             try {
                 const updateData = { fullname, email, gender, phoneNumber };
-                // Hash the password if it's provided
                 if (password) {
                     updateData.password = yield bcrypt_1.default.hash(password, 10);
                 }
@@ -124,6 +119,9 @@ class UserController {
                 if (updated === 0) {
                     return res.status(404).json({ message: 'User not found' });
                 }
+                // Send message to RabbitMQ after user update
+                const updateMessage = `User updated: ${fullname} (${email})`;
+                (0, rabbitmq_1.sendToQueue)(updateMessage);
                 return res.status(200).json({ message: 'User updated successfully' });
             }
             catch (error) {
@@ -131,7 +129,6 @@ class UserController {
             }
         });
     }
-    // Delete a user by ID
     static deleteUser(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             const { id } = req.params;
@@ -140,6 +137,9 @@ class UserController {
                 if (deleted === 0) {
                     return res.status(404).json({ message: 'User not found' });
                 }
+                // Send message to RabbitMQ after user deletion
+                const deleteMessage = `User deleted: ${id}`;
+                (0, rabbitmq_1.sendToQueue)(deleteMessage);
                 return res.status(200).json({ message: 'User deleted successfully' });
             }
             catch (error) {
@@ -150,7 +150,6 @@ class UserController {
     static logout(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                // Optionally handle token invalidation in your application
                 return res.status(200).json({ message: 'Logout successful' });
             }
             catch (error) {
